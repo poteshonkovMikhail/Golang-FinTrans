@@ -3,36 +3,56 @@ package database_methods
 import (
 	"database/sql"
 	"fmt"
+	"log"
 
-	_ "github.com/lib/pq" // Импортируем драйвер PostgreSQL
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	_ "github.com/lib/pq"
 )
 
-type SomethingNeedInConnection interface {
-	Connector()
+var (
+	Db *sql.DB
+)
+
+type Connector interface {
+	DbConnector(conn *ConnPostgres) error
 }
 
-type Postgres struct {
+type ConnPostgres struct {
 	Host     string
-	Port     string
 	User     string
 	Password string
-	Dbname   string
+	DbName   string
+	Port     string
+	SslMode  string
 }
 
-func (*Postgres) Connector(db *Postgres) (*sql.DB, error) {
-	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		db.Host, db.Port, db.User, db.Password, db.Dbname)
-
-	database, err := sql.Open("postgres", psqlInfo)
+func (s *ConnPostgres) DbConnector() error {
+	// Формируем строку подключения
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		s.Host, s.User, s.Password, s.DbName, s.Port, s.SslMode)
+	var err error
+	// Подключаемся к базе данных
+	Db, err = sql.Open("postgres", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("could not open db connection: %v", err)
+		return fmt.Errorf("ошибка при подключении к базе данных: %w", err)
 	}
 
-	// Проверяем соединение
-	if err := database.Ping(); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("could not ping db: %v", err)
+	// Проверяем подключение
+	if err = Db.Ping(); err != nil {
+		return fmt.Errorf("не удалось установить соединение с базой данных: %w", err)
 	}
 
-	return database, nil
+	return nil
+}
+
+// Настройка подключения к базе данных с использованием GORM
+func SetupGormDatabase() *gorm.DB {
+	dsn := "host=localhost user=postgres password=workout+5 dbname=fintrans_transactions_postgres port=5432 sslmode=disable"
+	Db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("Ошибка при подключении к базе данных: %v", err)
+	}
+	return Db
 }

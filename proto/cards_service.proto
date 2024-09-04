@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package cardservice;
+
+option go_package = "./proto_generated/cards_service";
+
+service CardService {
+    rpc CreateCard(CreateCardRequest) returns (CreateCardResponse);
+    rpc GetCard(GetCardRequest) returns (GetCardResponse);
+    rpc ListCards(ListCardsRequest) returns (ListCardsResponse);
+    rpc DeleteCard(DeleteCardRequest) returns (DeleteCardResponse);
+    rpc CheckRecipientCard(CheckRecipientCardRequest) returns (CheckRecipientCardResponse);
+}
+
+message CreateCardRequest {
+    string Username = 2;
+    string card_type = 3;
+}
+
+message CreateCardResponse {
+    string card_number = 1;
+    string message = 2;
+}
+
+message GetCardRequest {
+    string card_number = 1;
+}
+
+message GetCardResponse {
+    int32 user_id = 1;
+    string card_type = 2;
+    string card_number = 3;
+    string card_expiry_date = 4;
+    bool Availability = 5;
+    string Username = 6;
+    double balance = 7;
+}
+
+message ListCardsRequest {
+    int32 user_id = 1;
+}
+
+message ListCardsResponse {
+    repeated GetCardResponse cards = 1;
+}
+
+message DeleteCardRequest {
+    string card_id = 1;
+}
+
+message DeleteCardResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message CheckRecipientCardRequest {
+    string recipient_card_number = 1;
+}
+
+message CheckRecipientCardResponse {
+    bool Availability = 1;
+    string RecipientUsername = 2;
+}

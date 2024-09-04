@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net"
 	"net/http"
+
+	"fmt"
 
 	"github.com/streadway/amqp"
 	"google.golang.org/grpc"
@@ -15,37 +16,37 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
 	usfl "fin-trans/database_methods_package"
-	cardpb "fin-trans/transactions_service/proto/proto_generated/cards_service"   // Путь к сгенерированным protobuf-файлам сервиса карт
-	pb "fin-trans/transactions_service/proto/proto_generated/transactions_sender" // Путь к сгенерированным protobuf-файлам сервиса транзакций (этого сервиса)
+	cardpb "fin-trans/proto/proto_generated/cards_service"   // Путь к сгенерированным protobuf-файлам сервиса карт
+	pb "fin-trans/proto/proto_generated/transactions_sender" // Путь к сгенерированным protobuf-файлам сервиса транзакций (этого сервиса)
 	trhr "fin-trans/transactions_service/transactions_handler"
+)
+
+var (
+	QueueName = "TransactionsQueue"
 )
 
 type server struct {
 	pb.UnimplementedTransactionServiceServer
 	cardClient cardpb.CardServiceClient
 	rabbitConn *amqp.Connection
-	db         *sql.DB
 }
 
 func (s *server) SendTransactionToQueue(ctx context.Context, req *pb.CreateTransactionRequest) {
 	//Вынесено в отдельную горутину для асинхронного выполнения
 	go func() {
 		transaction := map[string]interface{}{
-			"user_id":               req.UserId,
 			"card_number":           req.CardNumber,
 			"amount":                req.Amount,
 			"recipient_card_number": req.RecipientCardNumber,
 		}
 
 		// Открываем канал для сообщений RabbitMQ
-
 		channel, err := s.rabbitConn.Channel()
 		if err != nil {
 			log.Printf("Ошибка при открытии канала для сообщений: %v", err)
 			return
 		}
-
-		queueName := "transactions"
+		defer channel.Close()
 
 		body, err := json.Marshal(transaction)
 		if err != nil {
@@ -54,15 +55,15 @@ func (s *server) SendTransactionToQueue(ctx context.Context, req *pb.CreateTrans
 
 		err = channel.Publish(
 			"",        // Прямой обменник
-			queueName, // Имя очереди
+			QueueName, // Имя очереди
 			false,     // Признак сходимости
 			false,     // Признак приоритета
 			amqp.Publishing{
-				ContentType: "application/json",
-				Body:        body,
+				ContentType:  "application/json",
+				Body:         body,
+				DeliveryMode: amqp.Persistent, // сообщение будет устойчивым
 			})
 		if err != nil {
-			//tx.Rollback() // Откат транзакции в случае ошибки
 			log.Printf("Ошибка при отправке транзакции в обменник сообщений: %v", err)
 		}
 	}()
@@ -71,15 +72,33 @@ func (s *server) SendTransactionToQueue(ctx context.Context, req *pb.CreateTrans
 func (s *server) CreateTransaction(ctx context.Context, req *pb.CreateTransactionRequest) (*pb.CreateTransactionResponse, error) {
 	cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
 	if err != nil {
-		log.Fatalf("Не найдена карта при создании транзакции: %v", err)
+		log.Printf("Не найдена карта при создании транзакции: %v", err)
+
+		//Запуск горутины, отправляющей
+		go s.SendTransactionToQueue(ctx, req)
+		return &pb.CreateTransactionResponse{
+			IsCreated: false,
+			Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+		}, nil
+	}
+
+	if cardRes.CardNumber == "" {
 		return &pb.CreateTransactionResponse{
 			IsCreated: false,
 			Message:   "У вас нет такой карты",
 		}, nil
 	}
 
+	if req.Amount <= 0.0 {
+		return &pb.CreateTransactionResponse{
+			IsCreated: false,
+			Message:   "Введите корректное значение в поле Amount",
+		}, nil
+	}
+
 	if cardRes.Balance >= req.Amount {
 
+		//Запуск горутины, отправляющей
 		go s.SendTransactionToQueue(ctx, req)
 
 		return &pb.CreateTransactionResponse{
@@ -94,11 +113,10 @@ func (s *server) CreateTransaction(ctx context.Context, req *pb.CreateTransactio
 	}
 }
 
-func newServer(cardClient cardpb.CardServiceClient, rabbitConn *amqp.Connection, db *sql.DB) *server {
+func newServer(cardClient cardpb.CardServiceClient, rabbitConn *amqp.Connection) *server {
 	return &server{
 		cardClient: cardClient,
 		rabbitConn: rabbitConn,
-		db:         db,
 	}
 }
 
@@ -114,6 +132,9 @@ func startGRPCServer() {
 		log.Fatalf("Ошибка при запуске сервера: %v", err)
 	}
 
+	//Запускаем чтение сообщений из RabbitMQ
+	go trhr.ReadFromRabbitMQ(QueueName, cardClient)
+
 	// Настройка подключения к RabbitMQ
 	rabbitConn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
 	if err != nil {
@@ -121,22 +142,26 @@ func startGRPCServer() {
 	}
 	defer rabbitConn.Close()
 
-	// Настройка подключения к базе данных
-	var postgresClientMethods *usfl.Postgres
-	db, err := postgresClientMethods.Connector(&usfl.Postgres{
+	//Подключение к БД
+	// Initialize your database connection details
+	connPostgres := &usfl.ConnPostgres{
 		Host:     "localhost",
-		Port:     "5432",
 		User:     "postgres",
 		Password: "workout+5",
-		Dbname:   "fintrans_transactions_postgres",
-	})
-	if err != nil {
-		log.Fatalf("Ошибка при подключении к базе данных: %v", err)
+		DbName:   "fintrans_transactions_postgres",
+		Port:     "5432",
+		SslMode:  "disable",
 	}
-	defer db.Close()
+
+	// Call the DbConnector method
+	if err := connPostgres.DbConnector(); err != nil {
+		fmt.Println("Error connecting to the database:", err)
+	} else {
+		fmt.Println("Successfully connected to the database!")
+	}
 
 	//Запускаем чтение сообщений из RabbitMQ
-	go trhr.ReadFromRabbitMQ("transactions", db, cardClient)
+	//go trhr.ReadFromRabbitMQ(QueueName, cardClient)
 
 	lis, err := net.Listen("tcp", ":50052")
 	if err != nil {
@@ -144,13 +169,14 @@ func startGRPCServer() {
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterTransactionServiceServer(grpcServer, newServer(cardClient, rabbitConn, db))
+	pb.RegisterTransactionServiceServer(grpcServer, newServer(cardClient, rabbitConn))
 	reflection.Register(grpcServer)
 
 	log.Println("gRPC server is running on port: 50052")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
+
 }
 
 func startRESTServer() {

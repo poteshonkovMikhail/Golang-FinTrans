@@ -23,7 +23,7 @@ func main() {
 	defer cancel()
 
 	// Создание новой карты
-	r, err := c.CreateCard(ctx, &cardpb.CreateCardRequest{UserId: "1119", Username: "Potes", CardType: "Debit"})
+	r, err := c.CreateCard(ctx, &cardpb.CreateCardRequest{Username: "Potes", CardType: "Debit"})
 	if err != nil {
 		log.Fatalf("could not create card: %v", err)
 	}
