@@ -81,11 +81,8 @@ func (s *server) CreateTransaction(ctx context.Context, req *pb.CreateTransactio
 		cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
 		// Кэшируем результат
 		go func(cardRes *cardpb.GetCardResponse) {
-
-			//Здесь сделать наличия выделенного места в памяти
-
 			jsonCard, _ := json.Marshal(cardRes)
-			s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 48*time.Hour)
+			s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 4*time.Hour)
 		}(cardRes)
 
 		if err != nil {
@@ -189,7 +186,6 @@ func startGRPCServer() {
 	if redisClient == nil {
 		log.Printf("Ошибка при запуске кэш-сервера Redis: %v", err)
 	}
-	/////////////////////////////////////
 	//Подключаемся к Redis
 	// Создаем новый клиент Redis
 	rdb := redis.NewClient(&redis.Options{
@@ -201,29 +197,12 @@ func startGRPCServer() {
 	ctx := context.Background()
 
 	// Проверяем подключение
+	/////////////////////////////////////////////////////////////////////////////////////////////////Здесь параллельно запустить перезапуск пинга, пока не поймает Redis
 	_, err = rdb.Ping(ctx).Result()
 	if err != nil {
 		log.Printf("Ошибка при подключении к Redis: %v", err)
 	}
 	fmt.Println("Успешно подключено к Redis!")
-
-	// Запись данных в Redis
-	//err = rdb.Set(ctx, "key", "value", 10*time.Second).Err()
-	//if err != nil {
-	//	log.Fatalf("Ошибка при записи в Redis: %v", err)
-	//}
-	//fmt.Println("Данные записаны в Redis.")
-
-	// Чтение данных из Redis
-	//val, err := rdb.Get(ctx, "key").Result()
-	//if err != nil {
-	//	log.Fatalf("Ошибка при чтении из Redis: %v", err)
-	//}
-	//fmt.Printf("Значение по ключу 'key': %s\n", val)
-
-	// Закрываем соединение с Redis
-	//defer rdb.Close()
-	///////////////////////
 
 	lis, err := net.Listen("tcp", ":50052")
 	if err != nil {
