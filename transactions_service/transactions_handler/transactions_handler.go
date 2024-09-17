@@ -43,9 +43,8 @@ func ReadFromRabbitMQ(queueName string, cardClient cardpb.CardServiceClient) {
 		fmt.Printf("failed to declare a queue: %v", err)
 	}
 
-	if err := usfl.Db.Ping(); err != nil {
+	if err := usfl.Db_transactions_sevice_conn.Ping(); err != nil {
 		log.Println("Транзакция висит в очереди и ждёт установления соединения с БД, запросы пользователей продолжают поступать в очередь")
-		//go bal.RefreshBalances(models.FintransSuccessfulTransactionsPostgres{}, cardClient)
 	} else {
 
 		// Получение сообщений из очереди
@@ -62,13 +61,14 @@ func ReadFromRabbitMQ(queueName string, cardClient cardpb.CardServiceClient) {
 			fmt.Printf("failed to register a consumer: %v", err)
 		}
 
-		go func() {
-			// Потоковое чтение всех сообщений из очереди
-			for msg := range msgs {
+		//go func() {
+		// Потоковое чтение всех сообщений из очереди
+		for msg := range msgs {
+			go func() {
 				err := json.Unmarshal(msg.Body, &transaction)
 				if err != nil {
 					fmt.Printf("failed to unmarshal message: %v", err)
-					continue
+					return
 				}
 				log.Printf("Received: %s", transaction)
 
@@ -79,8 +79,9 @@ func ReadFromRabbitMQ(queueName string, cardClient cardpb.CardServiceClient) {
 				}
 				go bal.RefreshBalances(newTransaction, cardClient)
 
-			}
-		}()
+			}()
+		}
+		//}()
 
 	}
 }

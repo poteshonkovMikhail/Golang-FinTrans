@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package redis_cache_service.proto;
+
+option go_package = "./proto_generated/redis_cache_service";
+
+service CardService {
+    rpc RedisGetCard(RedisGetCardRequest) returns (RedisGetCardResponse);
+}
+
+message RedisGetCardRequest {
+    string card_number = 1;
+}
+
+message RedisGetCardResponse {
+    int32 user_id = 1;
+    string card_type = 2;
+    string card_number = 3;
+    string card_expiry_date = 4;
+    bool Availability = 5;
+    string Username = 6;
+    double balance = 7;
+}

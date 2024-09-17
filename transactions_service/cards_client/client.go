@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	cardpb "fin-trans/transactions_service/proto/proto_generated/cards_service"
+	cardpb "fin-trans/proto/proto_generated/cards_service"
 
 	"google.golang.org/grpc"
 )
@@ -22,17 +22,18 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	// Создание новой карты
-	r, err := c.CreateCard(ctx, &cardpb.CreateCardRequest{Username: "Potes", CardType: "Debit"})
-	if err != nil {
-		log.Fatalf("could not create card: %v", err)
+	for i := 0; i < 500; i++ {
+		// Создание новой карты
+		r, err := c.CreateCard(ctx, &cardpb.CreateCardRequest{Username: "Potes", CardType: "Debit"})
+		if err != nil {
+			log.Fatalf("could not create card: %v", err)
+		}
+		log.Printf("Created Card Number: %s", r.GetCardNumber())
 	}
-	log.Printf("Created Card Number: %s", r.GetCardNumber())
-
 	// Получение информации о карте
-	card, err := c.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: r.GetCardNumber()})
-	if err != nil {
-		log.Fatalf("could not get card: %v", err)
-	}
-	log.Printf("Card Info: %v", card)
+	//card, err := c.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: r.GetCardNumber()})
+	//if err != nil {
+	//	log.Fatalf("could not get card: %v", err)
+	//}
+	//log.Printf("Card Info: %v", card)
 }

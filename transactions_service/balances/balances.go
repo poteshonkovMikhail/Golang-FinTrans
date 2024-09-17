@@ -2,7 +2,6 @@ package balances
 
 import (
 	"context"
-	//"database/sql"
 	"log"
 
 	usfl "fin-trans/database_methods_package"
@@ -12,14 +11,15 @@ import (
 
 func RefreshBalances(newTransaction models.FintransSuccessfulTransactionsPostgres, cardClient cardpb.CardServiceClient) {
 	ctx := context.Background()
-
 	// Начинаем новую транзакцию
-	tx, err := usfl.Db.Begin()
+	tx, err := usfl.Db_transactions_sevice_conn.Begin()
 	if err != nil {
 		log.Printf("Ошибка при начале транзакции: %v", err)
 		return
 	}
-	/////////////////////////////////////////////////////////////////Если ложиться нахой сервис карт, то направляем все прочитанное в кэш Redis//////////////////////////////////////////////////
+	/////////////////////////////////////////////////////////////////Если ложиться нахой сервис карт, то направляем все это в очередь//////////////////////////////////////////////////
+	/////////////////////////////////////////////////////////////////Добавить каналы для отправки ответов пользователю///////
+
 	// Получаем информацию о картах отправителя и получателя
 	senderCard, err := cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: newTransaction.CardNumber})
 	if err != nil {

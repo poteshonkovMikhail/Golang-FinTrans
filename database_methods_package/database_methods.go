@@ -12,7 +12,9 @@ import (
 )
 
 var (
-	Db *sql.DB
+	Db_card_sevice_conn         *sql.DB
+	Db_transactions_sevice_conn *sql.DB
+	Db_redis_cache_server_conn  *sql.DB
 )
 
 type Connector interface {
@@ -28,19 +30,19 @@ type ConnPostgres struct {
 	SslMode  string
 }
 
-func (s *ConnPostgres) DbConnector() error {
+func (s *ConnPostgres) DbConnector(db *sql.DB) error {
 	// Формируем строку подключения
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		s.Host, s.User, s.Password, s.DbName, s.Port, s.SslMode)
 	var err error
 	// Подключаемся к базе данных
-	Db, err = sql.Open("postgres", dsn)
+	db, err = sql.Open("postgres", dsn)
 	if err != nil {
 		return fmt.Errorf("ошибка при подключении к базе данных: %w", err)
 	}
 
 	// Проверяем подключение
-	if err = Db.Ping(); err != nil {
+	if err = db.Ping(); err != nil {
 		return fmt.Errorf("не удалось установить соединение с базой данных: %w", err)
 	}
 
