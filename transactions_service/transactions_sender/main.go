@@ -177,40 +177,25 @@ func startGRPCServer() {
 		fmt.Println("Successfully connected to the database!")
 	}
 
-	var redisCl *rds.CardServiceClient
 	// Запускаем параллельное подключение к gRPC сервису RedisCacheServer
-	go func(redisCl *rds.CardServiceClient) {
-		for {
-			connline, err := grpc.Dial("localhost:50053", grpc.WithInsecure(), grpc.WithBlock())
-			if err != nil {
-				log.Printf("Ошибка при подключении к RedisCacheServer: %v. Повторная попытка через 5 секунд...", err)
-				time.Sleep(5 * time.Second) // Ожидание перед повторной попыткой
-				continue
-			}
-			defer connline.Close()
-			redisClient := rds.NewCardServiceClient(connline)
-			if redisClient != nil {
-				log.Println("Успешно подключено к RedisCacheServer!")
-				redisCl = &redisClient
-				break // Успешное подключение, выходим из цикла
-			}
+	go func() {
+		connline, err := grpc.Dial("localhost:50053", grpc.WithInsecure(), grpc.WithBlock())
+		if err != nil {
+			log.Printf("Ошибка при подключении к RedisCacheServer: %v. Повторная попытка через 5 секунд...", err)
 		}
-	}(redisCl)
+		defer connline.Close()
+		redisClient := rds.NewCardServiceClient(connline)
+		if redisClient != nil {
+			log.Println("Успешно подключено к RedisCacheServer!")
+		}
+	}()
 
 	// Создаем новый клиент Redis
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "172.17.0.2:6379", // адрес Redis-сервера
-		Password: "workout+5",       // пароль (если установлен)
-		DB:       0,                 // используемая база данных
+		Addr:     "localhost:6379", // адрес Redis-сервера
+		Password: "workout+5",      // пароль (если установлен)
+		DB:       0,                // используемая база данных
 	})
-
-	// Проверяем подключение
-	_, err = rdb.Ping(context.Background()).Result()
-	if err != nil {
-		log.Printf("Ошибка при подключении к Redis: %v", err)
-	} else {
-		fmt.Println("Успешно подключено к Redis!")
-	}
 
 	lis, err := net.Listen("tcp", ":50052")
 	if err != nil {

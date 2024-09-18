@@ -127,11 +127,14 @@ func (s *server) RedisGetCard(ctx context.Context, req *rds.RedisGetCardRequest)
 func MakeRedisReplicationServ() {
 	// Устанавливаем соединение с Redis
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "172.17.0.2:6379",
-		Password: "workout+5",
-		DB:       0,
+		Addr: "localhost:6379",
 	})
 	defer rdb.Close()
+	// Проверяем подключение
+	_, err := rdb.Ping(context.Background()).Result()
+	if err != nil {
+		log.Printf("Ошибка подключения к Redis: %v", err)
+	}
 
 	// Обработка сигналов для завершения работы
 	quit := make(chan os.Signal, 1)
@@ -179,7 +182,7 @@ func MakeRedisReplicationServ() {
 
 			// Записываем данные в Redis
 			if err := rdb.Set(ctx, cardData.CardNumber, cardJson, 0).Err(); err != nil {
-				log.Fatalf("Ошибка при записи в Redis: %v", err)
+				log.Printf("Ошибка при записи в Redis: %v", err)
 			}
 
 			usedMemory += int64(len(cardJson))
