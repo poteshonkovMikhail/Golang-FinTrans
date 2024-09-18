@@ -74,57 +74,139 @@ func (s *server) SendTransactionToQueue(ctx context.Context, req *pb.CreateTrans
 }
 
 func (s *server) CreateTransaction(ctx context.Context, req *pb.CreateTransactionRequest) (*pb.CreateTransactionResponse, error) {
-	//if s.redisClient != nil {
-	//	//Здесь сначала бежим проверять наличие карты в репликации части основных данных в Redis
-	//	cardRes, err := s.redisClient.RedisGetCard(ctx, &rds.RedisGetCardRequest{CardNumber: req.CardNumber})
-	//}else{
-	//Если в Redis не найдена искомая карта
-	cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
-	// Кэшируем результат
-	go func(cardRes *cardpb.GetCardResponse) {
-		jsonCard, _ := json.Marshal(cardRes)
-		s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 4*time.Hour)
-	}(cardRes)
+	if s.redisClient != nil {
+		//Здесь сначала бежим проверять наличие карты в репликации части основных данных в Redis
+		cardRes, err := s.redisClient.RedisGetCard(ctx, &rds.RedisGetCardRequest{CardNumber: req.CardNumber})
+		if err != nil {
 
-	if err != nil {
-		log.Printf("Не найдена карта при создании транзакции: %v", err)
+			//Если в Redis не найдена искомая карта
+			cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
+			// Кэшируем результат
+			go func(cardRes *cardpb.GetCardResponse) {
+				jsonCard, _ := json.Marshal(cardRes)
+				s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 4*time.Hour)
+			}(cardRes)
 
-		//Запуск горутины, отправляющей
-		go s.SendTransactionToQueue(ctx, req)
-		return &pb.CreateTransactionResponse{
-			IsCreated: false,
-			Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
-		}, nil
-	}
+			if err != nil {
+				log.Printf("Не найдена карта при создании транзакции: %v", err)
 
-	if cardRes.CardNumber == "" {
-		return &pb.CreateTransactionResponse{
-			IsCreated: false,
-			Message:   "У вас нет такой карты",
-		}, nil
-	}
+				//Запуск горутины, отправляющей
+				go s.SendTransactionToQueue(ctx, req)
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+				}, nil
+			}
 
-	if req.Amount <= 0.0 {
-		return &pb.CreateTransactionResponse{
-			IsCreated: false,
-			Message:   "Введите корректное значение в поле Amount",
-		}, nil
-	}
+			if cardRes.CardNumber == "" {
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "У вас нет такой карты",
+				}, nil
+			}
 
-	if cardRes.Balance >= req.Amount {
+			if req.Amount <= 0.0 {
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "Введите корректное значение в поле Amount",
+				}, nil
+			}
 
-		//Запуск горутины, отправляющей
-		go s.SendTransactionToQueue(ctx, req)
+			if cardRes.Balance >= req.Amount {
 
-		return &pb.CreateTransactionResponse{
-			IsCreated: true,
-			Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
-		}, nil
+				//Запуск горутины, отправляющей
+				go s.SendTransactionToQueue(ctx, req)
+
+				return &pb.CreateTransactionResponse{
+					IsCreated: true,
+					Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+				}, nil
+			} else {
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "Недостаточно средств, пополните баланс или поробуйте другую карту",
+				}, nil
+			}
+		} else {
+			if cardRes.CardNumber == "" {
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "У вас нет такой карты",
+				}, nil
+			}
+
+			if req.Amount <= 0.0 {
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "Введите корректное значение в поле Amount",
+				}, nil
+			}
+
+			if cardRes.Balance >= req.Amount {
+
+				//Запуск горутины, отправляющей
+				go s.SendTransactionToQueue(ctx, req)
+
+				return &pb.CreateTransactionResponse{
+					IsCreated: true,
+					Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+				}, nil
+			} else {
+				return &pb.CreateTransactionResponse{
+					IsCreated: false,
+					Message:   "Недостаточно средств, пополните баланс или поробуйте другую карту",
+				}, nil
+			}
+		}
 	} else {
-		return &pb.CreateTransactionResponse{
-			IsCreated: false,
-			Message:   "Недостаточно средств, пополните баланс или поробуйте другую карту",
-		}, nil
+		//Если в Redis не найдена искомая карта
+		cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
+		// Кэшируем результат
+		go func(cardRes *cardpb.GetCardResponse) {
+			jsonCard, _ := json.Marshal(cardRes)
+			s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 4*time.Hour)
+		}(cardRes)
+
+		if err != nil {
+			log.Printf("Не найдена карта при создании транзакции: %v", err)
+
+			//Запуск горутины, отправляющей
+			go s.SendTransactionToQueue(ctx, req)
+			return &pb.CreateTransactionResponse{
+				IsCreated: false,
+				Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+			}, nil
+		}
+
+		if cardRes.CardNumber == "" {
+			return &pb.CreateTransactionResponse{
+				IsCreated: false,
+				Message:   "У вас нет такой карты",
+			}, nil
+		}
+
+		if req.Amount <= 0.0 {
+			return &pb.CreateTransactionResponse{
+				IsCreated: false,
+				Message:   "Введите корректное значение в поле Amount",
+			}, nil
+		}
+
+		if cardRes.Balance >= req.Amount {
+
+			//Запуск горутины, отправляющей
+			go s.SendTransactionToQueue(ctx, req)
+
+			return &pb.CreateTransactionResponse{
+				IsCreated: true,
+				Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+			}, nil
+		} else {
+			return &pb.CreateTransactionResponse{
+				IsCreated: false,
+				Message:   "Недостаточно средств, пополните баланс или поробуйте другую карту",
+			}, nil
+		}
 	}
 }
 
