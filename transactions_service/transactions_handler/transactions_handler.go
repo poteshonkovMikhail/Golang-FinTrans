@@ -43,45 +43,45 @@ func ReadFromRabbitMQ(queueName string, cardClient cardpb.CardServiceClient) {
 		fmt.Printf("failed to declare a queue: %v", err)
 	}
 
-	if err := usfl.Db_transactions_sevice_conn.Ping(); err != nil {
+	if err := usfl.DB.Ping(); err != nil {
 		log.Println("Транзакция висит в очереди и ждёт установления соединения с БД, запросы пользователей продолжают поступать в очередь")
 	} else {
 
-		// Получение сообщений из очереди
-		msgs, err := channel.Consume(
-			q.Name, // имя очереди
-			"",     // потребитель
-			true,   // автоподтверждение
-			false,  // эксклюзивная
-			false,  // без ожидания
-			false,  // без аргументов
-			nil,
-		)
-		if err != nil {
-			fmt.Printf("failed to register a consumer: %v", err)
-		}
+	// Получение сообщений из очереди
+	msgs, err := channel.Consume(
+		q.Name, // имя очереди
+		"",     // потребитель
+		true,   // автоподтверждение
+		false,  // эксклюзивная
+		false,  // без ожидания
+		false,  // без аргументов
+		nil,
+	)
+	if err != nil {
+		fmt.Printf("failed to register a consumer: %v", err)
+	}
 
-		//go func() {
-		// Потоковое чтение всех сообщений из очереди
-		for msg := range msgs {
-			go func() {
-				err := json.Unmarshal(msg.Body, &transaction)
-				if err != nil {
-					fmt.Printf("failed to unmarshal message: %v", err)
-					return
-				}
-				log.Printf("Received: %s", transaction)
+	//go func() {
+	// Потоковое чтение всех сообщений из очереди
+	for msg := range msgs {
+		go func() {
+			err := json.Unmarshal(msg.Body, &transaction)
+			if err != nil {
+				fmt.Printf("failed to unmarshal message: %v", err)
+				return
+			}
+			log.Printf("Received: %s", transaction)
 
-				newTransaction := models.FintransSuccessfulTransactionsPostgres{
-					CardNumber:          transaction.CardNumber,
-					Amount:              transaction.Amount,
-					RecipientCardNumber: transaction.RecipientCardNumber,
-				}
-				go bal.RefreshBalances(newTransaction, cardClient)
+			newTransaction := models.FintransSuccessfulTransactionsPostgres{
+				CardNumber:          transaction.CardNumber,
+				Amount:              transaction.Amount,
+				RecipientCardNumber: transaction.RecipientCardNumber,
+			}
+			go bal.RefreshBalances(newTransaction, cardClient)
 
-			}()
-		}
-		//}()
+		}()
+	}
+	//}()
 
 	}
 }

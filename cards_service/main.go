@@ -49,7 +49,7 @@ func (s *server) CreateCard(ctx context.Context, req *cardpb.CreateCardRequest) 
 	}
 
 	// Сохраняем новую карту в sql базе данных
-	_, err := usfl.Db_card_sevice_conn.Exec("INSERT INTO cards (card_type, card_number, card_expiry_date, availability, username) VALUES ($1, $2, $3, $4, $5)",
+	_, err := usfl.DB.Exec("INSERT INTO cards (card_type, card_number, card_expiry_date, availability, username) VALUES ($1, $2, $3, $4, $5)",
 		newCard.CardType, newCard.CardNumber, newCard.CardExpiryDate, newCard.Availability, newCard.Username)
 
 	if err != nil {
@@ -65,7 +65,7 @@ func (s *server) CreateCard(ctx context.Context, req *cardpb.CreateCardRequest) 
 func (s *server) getCardInfo(cardNumber string) (models.Card, error) {
 	var cardInfo models.Card
 
-	row := usfl.Db_card_sevice_conn.QueryRow("SELECT user_id, card_type, card_number, card_expiry_date, availability, username, balance FROM cards WHERE card_number = $1", cardNumber)
+	row := usfl.DB.QueryRow("SELECT user_id, card_type, card_number, card_expiry_date, availability, username, balance FROM cards WHERE card_number = $1", cardNumber)
 	err := row.Scan(&cardInfo.UserID, &cardInfo.CardType, &cardInfo.CardNumber, &cardInfo.CardExpiryDate, &cardInfo.Availability, &cardInfo.Username, &cardInfo.Balance)
 
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *server) ListCards(ctx context.Context, req *cardpb.ListCardsRequest) (*
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rows, err := usfl.Db_card_sevice_conn.Query("SELECT user_id, card_type, card_number, card_expiry_date, availability, username FROM cards WHERE user_id = $1", req.UserId)
+	rows, err := usfl.DB.Query("SELECT user_id, card_type, card_number, card_expiry_date, availability, username FROM cards WHERE user_id = $1", req.UserId)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func startGRPCserver() {
 	}
 
 	// Call the DbConnector method
-	if err := connPostgres.DbConnector(usfl.Db_card_sevice_conn); err != nil {
+	if err := connPostgres.DbConnector(); err != nil {
 		fmt.Println("Error connecting to the database:", err)
 	} else {
 		fmt.Println("Successfully connected to the database!")

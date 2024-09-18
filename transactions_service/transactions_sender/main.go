@@ -74,28 +74,29 @@ func (s *server) SendTransactionToQueue(ctx context.Context, req *pb.CreateTrans
 }
 
 func (s *server) CreateTransaction(ctx context.Context, req *pb.CreateTransactionRequest) (*pb.CreateTransactionResponse, error) {
-	//Здесь сначала бежим проверять наличие карты в репликации части основных данных в Redis
-	cardRes, err := s.redisClient.RedisGetCard(ctx, &rds.RedisGetCardRequest{CardNumber: req.CardNumber})
-	if err != nil || cardRes == nil {
-		//Если в Redis не найдена искомая карта
-		cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
-		// Кэшируем результат
-		go func(cardRes *cardpb.GetCardResponse) {
-			jsonCard, _ := json.Marshal(cardRes)
-			s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 4*time.Hour)
-		}(cardRes)
+	//if s.redisClient != nil {
+	//	//Здесь сначала бежим проверять наличие карты в репликации части основных данных в Redis
+	//	cardRes, err := s.redisClient.RedisGetCard(ctx, &rds.RedisGetCardRequest{CardNumber: req.CardNumber})
+	//}else{
+	//Если в Redis не найдена искомая карта
+	cardRes, err := s.cardClient.GetCard(ctx, &cardpb.GetCardRequest{CardNumber: req.CardNumber})
+	// Кэшируем результат
+	go func(cardRes *cardpb.GetCardResponse) {
+		jsonCard, _ := json.Marshal(cardRes)
+		s.redisServer.Set(ctx, cardRes.CardNumber, jsonCard, 4*time.Hour)
+	}(cardRes)
 
-		if err != nil {
-			log.Printf("Не найдена карта при создании транзакции: %v", err)
+	if err != nil {
+		log.Printf("Не найдена карта при создании транзакции: %v", err)
 
-			//Запуск горутины, отправляющей
-			go s.SendTransactionToQueue(ctx, req)
-			return &pb.CreateTransactionResponse{
-				IsCreated: false,
-				Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
-			}, nil
-		}
+		//Запуск горутины, отправляющей
+		go s.SendTransactionToQueue(ctx, req)
+		return &pb.CreateTransactionResponse{
+			IsCreated: false,
+			Message:   "Перевод успешно начат, вы получите уведомление, когда транзакция завершится",
+		}, nil
 	}
+
 	if cardRes.CardNumber == "" {
 		return &pb.CreateTransactionResponse{
 			IsCreated: false,
@@ -127,12 +128,12 @@ func (s *server) CreateTransaction(ctx context.Context, req *pb.CreateTransactio
 	}
 }
 
-func newServer(cardClient cardpb.CardServiceClient, rabbitConn *amqp.Connection, rdb *redis.Client, redisClient rds.CardServiceClient) *server {
+func newServer(cardClient cardpb.CardServiceClient, rabbitConn *amqp.Connection, rdb *redis.Client, redisCl rds.CardServiceClient) *server {
 	return &server{
 		cardClient:  cardClient,
 		rabbitConn:  rabbitConn,
 		redisServer: rdb,
-		redisClient: redisClient,
+		redisClient: redisCl,
 	}
 }
 
@@ -148,7 +149,7 @@ func startGRPCServer() {
 		log.Fatalf("Ошибка при запуске сервера: %v", err)
 	}
 
-	//Запускаем чтение сообщений из RabbitMQ
+	// Запускаем чтение сообщений из RabbitMQ
 	go trhr.ReadFromRabbitMQ(QueueName, cardClient)
 
 	// Настройка подключения к RabbitMQ
@@ -158,7 +159,7 @@ func startGRPCServer() {
 	}
 	defer rabbitConn.Close()
 
-	//Подключение к БД
+	// Подключение к БД
 	// Initialize your database connection details
 	connPostgres := &usfl.ConnPostgres{
 		Host:     "localhost",
@@ -170,39 +171,46 @@ func startGRPCServer() {
 	}
 
 	// Call the DbConnector method
-	if err := connPostgres.DbConnector(usfl.Db_transactions_sevice_conn); err != nil {
+	if err := connPostgres.DbConnector(); err != nil {
 		fmt.Println("Error connecting to the database:", err)
 	} else {
 		fmt.Println("Successfully connected to the database!")
 	}
 
-	//Подключаемся к gRPC сервису RedisCacheServer
-	connline, err := grpc.Dial("localhost:50053", grpc.WithInsecure(), grpc.WithBlock())
-	if err != nil {
-		log.Fatalf("не удалось подключиться к CardService: %v", err)
-	}
-	defer conn.Close()
-	redisClient := rds.NewCardServiceClient(connline)
-	if redisClient == nil {
-		log.Printf("Ошибка при запуске кэш-сервера Redis: %v", err)
-	}
-	//Подключаемся к Redis
+	var redisCl *rds.CardServiceClient
+	// Запускаем параллельное подключение к gRPC сервису RedisCacheServer
+	go func(redisCl *rds.CardServiceClient) {
+		for {
+			connline, err := grpc.Dial("localhost:50053", grpc.WithInsecure(), grpc.WithBlock())
+			if err != nil {
+				log.Printf("Ошибка при подключении к RedisCacheServer: %v. Повторная попытка через 5 секунд...", err)
+				time.Sleep(5 * time.Second) // Ожидание перед повторной попыткой
+				continue
+			}
+			defer connline.Close()
+			redisClient := rds.NewCardServiceClient(connline)
+			if redisClient != nil {
+				log.Println("Успешно подключено к RedisCacheServer!")
+				redisCl = &redisClient
+				break // Успешное подключение, выходим из цикла
+			}
+		}
+	}(redisCl)
+
 	// Создаем новый клиент Redis
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // адрес Redis-сервера
-		Password: "",               // пароль (если установлен)
-		DB:       0,                // используемая база данных
+		Addr:     "172.17.0.2:6379", // адрес Redis-сервера
+		Password: "workout+5",       // пароль (если установлен)
+		DB:       0,                 // используемая база данных
 	})
 
-	ctx := context.Background()
-
 	// Проверяем подключение
-	/////////////////////////////////////////////////////////////////////////////////////////////////Здесь параллельно запустить перезапуск пинга, пока не поймает Redis
-	_, err = rdb.Ping(ctx).Result()
+	_, err = rdb.Ping(context.Background()).Result()
 	if err != nil {
 		log.Printf("Ошибка при подключении к Redis: %v", err)
+	} else {
+		fmt.Println("Успешно подключено к Redis!")
 	}
-	fmt.Println("Успешно подключено к Redis!")
 
 	lis, err := net.Listen("tcp", ":50052")
 	if err != nil {
@@ -210,14 +218,13 @@ func startGRPCServer() {
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterTransactionServiceServer(grpcServer, newServer(cardClient, rabbitConn, rdb, redisClient))
+	pb.RegisterTransactionServiceServer(grpcServer, newServer(cardClient, rabbitConn, rdb, nil))
 	reflection.Register(grpcServer)
 
 	log.Println("Transactions gRPC server is running on port: 50052")
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
-
 }
 
 func startRESTServer() {

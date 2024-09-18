@@ -12,7 +12,7 @@ import (
 func RefreshBalances(newTransaction models.FintransSuccessfulTransactionsPostgres, cardClient cardpb.CardServiceClient) {
 	ctx := context.Background()
 	// Начинаем новую транзакцию
-	tx, err := usfl.Db_transactions_sevice_conn.Begin()
+	tx, err := usfl.DB.Begin()
 	if err != nil {
 		log.Printf("Ошибка при начале транзакции: %v", err)
 		return
